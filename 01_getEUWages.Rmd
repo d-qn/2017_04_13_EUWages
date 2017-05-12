@@ -1,0 +1,311 @@
+---
+title: "Wages in Europe"
+author: "Duc-Quang Nguyen | swissinfo.ch"
+date: " 2017"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    theme: simplex
+---
+
+
+## Data
+* [Root database](http://ec.europa.eu/eurostat/web/labour-market/earnings/main-tables)
+* [Structure of earnings survey: monthly earnings - earn_ses_monthly](http://appsso.eurostat.ec.europa.eu/nui/show.do?dataset=earn_ses_monthly&lang=en)
+* [Mean monthly earnings by sex, age and economic activity (nace2 detailed) - earn_ses14_20](http://appsso.eurostat.ec.europa.eu/nui/show.do?dataset=earn_ses14_20&lang=en)
+* [Mean monthly earnings by sex, economic activity and educational attainment (nace2 detailed)](http://appsso.eurostat.ec.europa.eu/nui/show.do?dataset=earn_ses14_23&lang=en)
+* [Mean monthly earnings by sex, economic activity and occupation (earn_ses14_48)](http://ec.europa.eu/eurostat/web/labour-market/earnings/database#)
+* [Employment by sex, age, professional status and occupation (1 000) lfsa_egais](http://appsso.eurostat.ec.europa.eu/nui/show.do?dataset=lfsa_egais&lang=en)
+* [Structure of Earnings Survey 2014](http://ec.europa.eu/eurostat/cache/metadata/Annexes/earn_ses2014_esms_an1.pdf)
+* [Low wage earners earn_ses_pub1n](http://ec.europa.eu/eurostat/data/database#)
+
+## Ideas
+
+* D9/D1 interdecile ratio -> simpe bar along with mean PPS wage
+* Heatmap nace2 mean earnings & evolution by age
+* Average salary by overall average salary by education attainement and by country
+* Average salary by overall average salary by education attainement and by country and by nace2
+* Holidays?
+
+## Related
+
+* [Secteur professionnel et âge, deux paramètres essentiels en Suisse pour voir son salaire décoller](https://www.jobcloud.ch/c/fr-ch/blog/2014/09/barometre-salarial-apres-55-ans-les-augmentations-salaires-se-font-rares-cp/)
+
+
+## Snippets
+
+La théorie du capital humain montre que par un investissement continu durant la carrière, les compétences s'accroissent tout au long de la carrière professionnelle et cette expérience accumulée entraîne un salaire croissant dans une perspective de cycle de vie. C'est l'expérience et non l'âge en tant que tel qui est rémunérée.
+
+Disparities in gross hourly earnings within a country can be measured using deciles, and in particular the lowest and highest deciles, which correspond to the 10% of employees earning the least (D1) and to the 10% earning the most (D9). As a consequence, a high D9/D1 interdecile ratio indicates large disparities. D1 is the maximum gross hourly earnings received by the 10% of employees earnings least. D9 is the minimum gross hourly earnings received by the 10% of employees earning most.
+
+```{r setup, include=FALSE}
+downloadData <- F
+iso2.sub <- c('CH', 'DE' , 'EU28', 'FR', 'IT', 'PT', 'UK', 'ES')
+
+eu.monthly.file <- "data/earn_ses_monthly.RData"
+
+
+library(tidyverse)
+library(magrittr)
+library(scales)
+library(countrycode)
+library(swiMap)
+library(swiTheme)
+library(hrbrthemes)
+
+### Getting data in packages
+library(eurostat)
+library(hrbrthemes)
+require(classInt)
+require(viridis)
+### Interactive 
+
+```
+
+```{r load and trim data, include=F}
+if(downloadData) {
+  getEurostat <- function(tb) {
+    eu.dat <- get_eurostat(tb, time_format = "raw", cache = F)
+    eu.dat$time <- as.numeric(eu.dat$time)
+    eu.dat
+  } 
+  
+  eu.dat <- getEurostat('earn_ses_monthly')
+  eu.dat %<>% filter(
+    indic_se %in% c('ERN_MN_EUR', 'ERN_MN_PPS', 'ERN_MD_EUR', 'ERN_MD_PPS', 'ERN_D1_PPS', 'ERN_D9_PPS'),
+    !isco08 %in% c('OC1-5', 'OC6-8'), #discard some aggregate isco08
+    worktime %in% c('TOT_FTE'), # full-time equivalent
+    sex == "T",
+    nace_r2 != 'B-N'
+  ) %>% select(-sex, -worktime)
+
+  # detailed nace_r2
+  eu.1420 <- getEurostat('earn_ses14_20')
+  eu.1420 %<>% filter(
+    currency %in% c("EUR", "PPS"),
+    indic_se == "ME",
+    sizeclas == "GE10",
+    sex == "T"
+  ) %>% select(-time, -sex, -indic_se, -sizeclas)
+  
+  # by education attainment
+  eu.1423 <- getEurostat('earn_ses14_23')
+  eu.1423 %<>% filter(
+    currency %in% c("EUR", "PPS"),
+    sizeclas == "GE10",
+    sex == "T"
+  ) %>% select(-time, -sex, -indic_se, -sizeclas)
+  
+  egais <- getEurostat('lfsa_egais')
+  egais %<>% 
+    filter(sex == "T", age == "Y15-74", wstatus == "EMP", time == 2016) %>% 
+    select(-sex, -age, -wstatus, -time, -unit)
+  
+  # get full names
+  isco.dic <- get_eurostat_dic("isco08")
+  nace.dic <- get_eurostat_dic("nace_r2")
+  isced11.dic <- get_eurostat_dic("isced11")
+  geo.dic <- get_eurostat_dic("geo")
+     
+  save(eu.dat, eu.1420, eu.1423, egais, isco.dic, nace.dic, isced11.dic, geo.dic, file = eu.monthly.file)
+} else {
+  load(file = eu.monthly.file)
+}
+
+```
+
+## Explore dataset
+
+* **Managers, Professional, Technicians and associate professionals are the few occupations earning above average wage. Others are typically below.**
+* **Progression salariale est également très différente pour ces 3 catégories d'emploi.  Si en moyenne les travailleurs de plus de 60 ans percoivent un salaire 50% supérieur à un jeune de moins de 30 ans. Cette différence de salaire par tranche d'âge ne vaut que pour Managers, Professional, Technicians and associate professionals. Pour les autres catégories, en dessous**
+  * Ces données montre les disparités salariales par catégorie d'emploi. 
+
+
+```{r explore earn_ses_monthly, fig.width= 12, fig.height = 16}
+eu.dat$age <- factor(eu.dat$age, levels = c("Y_LT30", "Y30-39", "Y40-49", "Y50-59", "Y_GE60", "TOTAL"))
+dd <- eu.dat %>% filter(indic_se == 'ERN_MN_PPS', nace_r2 == 'B-S_X_O', time == 2014) %>% 
+  select(-time, -nace_r2, -indic_se)
+
+dd1 <- eu.dat %>% filter(indic_se %in% c('ERN_MN_EUR', 'ERN_MN_PPS', 'ERN_D1_PPS', 'ERN_D9_PPS'), !geo %in% c('EA18', 'EA19'),  age == "TOTAL", nace_r2 == 'B-S_X_O', isco08 == "TOTAL", age == "TOTAL", time == 2014)
+dd1 %<>% spread(indic_se, values) %>% mutate(ratio = ERN_D9_PPS / ERN_D1_PPS) %>% 
+  select(-nace_r2, -isco08, -age, -time, -ERN_D9_PPS, -ERN_D1_PPS) %>%
+  gather(indic_se, values, -geo)
+
+ggplot(dd1) + geom_bar(aes(x = reorder(geo, values), y = values), stat = "identity", fill = swi_col[1]) + facet_wrap(~ indic_se, scales = "free_x") + 
+  coord_flip() + theme_ipsum_rc() + scale_fill_ipsum()
+
+## salary % diff with country average by isco-08
+
+# add tot
+dd2 <- dd %>% group_by(geo, age) %>% mutate(tot.isco = values[which(isco08 == "TOTAL")]) %>% ungroup() %>% filter(isco08 != "TOTAL")
+dd2$val <- ((dd2$values - dd2$`tot.isco`) / dd2$`tot.isco`) * 100
+
+dd2 %<>% filter(geo %in% iso2.sub)
+dd2$isco08.full <- factor(isco.dic[match(dd2$isco08, isco.dic$code_name), 2] %>% unlist(use.names = F), 
+                         levels = isco.dic[match(levels(dd2$isco08), isco.dic$code_name), 2] %>% unlist(use.names = F))
+
+ggplot(dd2 %>% filter(age == "TOTAL")) + geom_tile(aes(x = geo, y = isco08.full, fill = val)) + theme_ipsum_rc() + 
+  scale_fill_gradient2(high = "#193442", mid = "white", low = "#72302f", midpoint = 0)
+
+
+ggplot(dd2) + geom_tile(aes(x = geo, y = isco08.full, fill = val)) + facet_wrap(~age) + theme_ipsum_rc() + 
+  scale_fill_gradient2(high = "#193442", mid = "white", low = "#72302f", midpoint = 0)
+
+## salary by age
+dd3 <- dd %>% filter(geo %in% iso2.sub) %>% 
+  group_by(isco08, geo) %>% arrange(age) %>% 
+  mutate(wage.lt30 =  values[1])  %>% ungroup() %>% 
+  filter(age != "TOTAL")
+dd3$val <- (((dd3$values - dd3$wage.lt30) / dd3$wage.lt30)  * 100) 
+dd3$isco08.full <- factor(isco.dic[match(dd3$isco08, isco.dic$code_name), 2] %>% 
+                            unlist(use.names = F), levels = isco.dic[match(levels(dd3$isco08), isco.dic$code_name), 2] %>% unlist(use.names = F))
+
+dd3$size <- ifelse(dd3$geo %in% c('CH', 'EU28'), 0.5, 0.1)
+
+ggplot(dd3) + geom_line(aes(x = age, y = val, group = geo, colour = geo, size = size)) + 
+  facet_wrap(~isco08.full, nrow = 3) + theme_ipsum_rc() + 
+  scale_fill_gradient2(high = "#193442", mid = "white", low = "#72302f", midpoint = 0) + geom_hline(yintercept = 0) + 
+  scale_colour_ipsum() + scale_size_identity() + ggtitle("% difference in average wage by age and occupation groups")
+
+ggplot(dd3 %>% filter(isco08.full != "Managers")) + geom_line(aes(x = age, y = val, group = geo, colour = geo, size = size)) + 
+  facet_wrap(~isco08.full, nrow = 3) + theme_ipsum_rc() + scale_size_identity() +
+  scale_fill_gradient2(high = "#193442", mid = "white", low = "#72302f", midpoint = 0) + scale_colour_ipsum() +
+  ggtitle("% difference in average wage by age and occupation groups")
+
+## interdecile ratio and mean by median
+dd4 <- eu.dat %>% filter(indic_se %in% c('ERN_D1_PPS', 'ERN_D9_PPS', "ERN_MD_PPS", "ERN_MN_PPS"), nace_r2 == 'B-S_X_O', time == 2014) %>% 
+  select(-time, -nace_r2) %>% 
+  spread(indic_se, values) %>% filter(geo %in% iso2.sub)
+
+dd4$ratio <- dd4$ERN_D9_PPS / dd4$ERN_D1_PPS
+dd4$ratioMeanMedian <- dd4$ERN_MN_PPS / dd4$ERN_MD_PPS
+
+dd4$isco08.full <- factor(isco.dic[match(dd4$isco08, isco.dic$code_name), 2] %>% 
+  unlist(use.names = F), levels = isco.dic[match(levels(dd4$isco08), isco.dic$code_name), 2] %>% unlist(use.names = F))
+
+dd4$size <- ifelse(dd4$geo %in% c('CH', 'EU28'), 0.5, 0.1)
+
+# ggplot(dd4 %>% filter( age == "TOTAL", geo != "EU28", isco08 == 'TOTAL')) + 
+#   geom_bar(aes(x = reorder(geo, ratio), y = ratio), stat = "identity") + 
+#   theme_ipsum_rc() + 
+#   ggtitle("interdecile ratio")
+# 
+# ggplot(dd4 %>% filter( age == "TOTAL", geo != "EU28", isco08 == 'TOTAL')) + 
+#   geom_bar(aes(x = reorder(geo, ratioMeanMedian), y = ratioMeanMedian), stat = "identity") + 
+#   theme_ipsum_rc() + 
+#   ggtitle("ratioMeanMedian")
+
+dd5 <- gather(dd4, indicator, value, -isco08, -age, -geo, -ratio,-isco08.full, -size)
+dd5 <- dd4
+dd5 %<>% filter(geo == "CH", age != "TOTAL")
+ggplot(dd5, aes(x = age, y = ERN_MN_PPS, group = isco08)) + 
+  geom_line() + 
+  geom_ribbon(aes(ymin = ERN_D1_PPS, ymax = ERN_D9_PPS ), fill = swi_col[2], alpha = 0.2) +
+  facet_wrap(~isco08) +
+  theme_ipsum_rc()
+
+# ggplot(dd4 %>% filter( age == "TOTAL", geo != "EU28")) + geom_tile(aes(x = geo, y = isco08.full, fill = ratio)) + theme_ipsum_rc() + 
+#   scale_fill_gradient2(high = "#193442", low = "#72302f") 
+
+# ggplot(dd4 %>% filter( age == "TOTAL", geo != "EU28", isco08 == 'TOTAL')) + 
+#   geom_bar(aes(x = reorder(geo, ratio), y = ratio), stat = "identity") + theme_ipsum_rc() + 
+#   scale_fill_gradient2(high = "#193442", low = "#72302f")
+# 
+# ggplot(dd4) + geom_line(aes(x = age, y = ratio, group = geo, colour = geo, size = size)) + 
+#   facet_wrap(~isco08.full, nrow = 3) + theme_ipsum_rc() + 
+#   scale_colour_ipsum() + scale_size_identity() + ggtitle("% difference in average wage by age and occupation groups")
+
+dd6 <- egais %>% filter(geo %in% iso2.sub)
+
+dd6 %<>% group_by(geo) %>% mutate(total = values[isco08 == 'TOTAL']) %>%
+  ungroup() %>% mutate(sharei = (values/total) * 100) %>% 
+  filter(!isco08 %in% c("TOTAL", "NRP"))
+
+#dd6 %>% group_by(geo) %>% mutate(test = sum(sharei)) %>% ungroup()
+ggplot(data = dd6) + geom_bar(aes(x = isco08, y = sharei, fill = isco08), stat = "identity") +
+  facet_wrap(~ geo) + theme_ipsum()
+
+dd7 <- dd6 %>% filter(isco08 %in% c('OC1', 'OC2', 'OC3'))
+dd7 %<>% group_by(geo) %>% mutate(or = sum(sharei)) %>% ungroup() %>%
+  mutate(geo = reorder(geo, -or))
+
+ggplot(data = dd7) +
+  geom_bar(aes(x = geo, y = sharei, fill = isco08), stat = "identity") + 
+  theme_ipsum()
+
+dd7dw <- dd7 %>% select(-values, -total, -or) %>%
+  spread(geo, sharei)
+write.csv(dd7dw, "input/shareISCO08_OC1_OC3_dw.csv", row.names = F)
+
+# compute mean wage for different weigths
+dd8 <- dd %>% filter(age == "TOTAL", geo %in% iso2.sub) %>% select(-age)
+dd8 <- dd6 %>% arrange(isco08, geo) %>% select(-values, -total) %>%
+  right_join(dd8 %>% arrange(isco08, geo))
+
+dd8 <- dd8 %>% filter(isco08 != 'TOTAL') %>% 
+  group_by(isco08) %>% mutate(eu28w = sharei[geo == 'EU28'] ) %>% ungroup()
+  
+dd8 %>% group_by(geo) %>% 
+  summarise(meanTest = weighted.mean(values, sharei, na.rm = T), 
+            euWWage =  weighted.mean(values, eu28w, na.rm = T)) %>% 
+  ungroup() %>%
+  mutate(diff = ((euWWage - meanTest) / meanTest) * 100)
+
+
+```
+
+```{r explore detailed nace_r2, fig.width= 12, fig.height = 16}
+# get the non-aggregated nace_r2 categories 
+naceudd8 <- dd %>% filter(age == "TOTAL", geo %in% iso2.sub) %>% select(-age)
+dd8 <- dd6 %>% arrange(isco08, geo) %>% select(-values, -total) %>%
+  right_join(dd8 %>% arrange(isco08, geo))
+naceu <- levels(eu.1420$nace_r2)[which(nchar(levels(eu.1420$nace_r2)) == 1)]
+
+ee <- eu.1420 %>% filter(currency == "PPS", nace_r2 %in% c(naceu, "B-S_X_O")) %>% select(-currency)
+ee$nace_r2 <- factor(ee$nace_r2, levels = c(naceu, "B-S_X_O"))
+ee$nace2.full <- factor(nace.dic[match(ee$nace_r2, nace.dic$code_name), 2] %>% unlist(use.names = F), 
+                         levels = nace.dic[match(levels(ee$nace_r2), nace.dic$code_name), 2] %>% unlist(use.names = F))
+
+ee1 <- ee %>% filter(age == "TOTAL", geo %in% iso2.sub) 
+
+ee1 %<>% group_by(geo, age) %>% mutate(tot = values[nace_r2 == "B-S_X_O"]) %>% 
+  ungroup() %>% filter(nace_r2 != "B-S_X_O") %>%
+   mutate(val = ((values - tot) / tot) * 100)
+
+# order by nace_r2 by descending % change from all economic sectors for EU-28
+tmp.levels <- ee1 %>% filter(geo == "EU28", age == "TOTAL") %>% 
+  arrange(val) %>% select(nace2.full) %>%
+  unlist(use.names = F) %>% as.character()
+ee1$nace2.full <- factor(ee1$nace2.full, levels = tmp.levels)
+
+ggplot(ee1 %>% filter(geo %in% iso2.sub, age == "TOTAL")) + geom_tile(aes(x = geo, y = nace2.full, fill = val)) + 
+  theme_ipsum_rc() + 
+  scale_fill_gradient2(high = "#193442", mid = "white", low = "#72302f", midpoint = 0)
+
+```
+
+```{r explore influence of education attainement, fig.width= 12, fig.height = 16}
+ff <- eu.1423 %>% filter(currency == "PPS", nace_r2 %in% c(naceu, "B-S_X_O")) %>% select(-currency)
+ff$nace_r2 <- factor(ff$nace_r2, levels = c(naceu, "B-S_X_O"))
+
+ff$nace2.full <- factor(nace.dic[match(ff$nace_r2, nace.dic$code_name), 2] %>% unlist(use.names = F), 
+                         levels = nace.dic[match(levels(ff$nace_r2), nace.dic$code_name), 2] %>% unlist(use.names = F))
+
+ff$isced11.full <- factor(isced11.dic[match(ff$isced11, isced11.dic$code_name), 2] %>% unlist(use.names = F), 
+                         levels = isced11.dic[match(levels(ff$isced11), isced11.dic$code_name), 2] %>% unlist(use.names = F))
+
+# compute wage pc change
+# ff %<>% group_by(nace_r2, geo) %>% mutate(isced.all = values[isced11 == 'TOTAL']) %>%
+#   ungroup() %>%
+#   mutate(val = ((values - isced.all) / isced.all) * 100)
+# 
+# # get overall nacer2
+# ff1 <- ff %>% filter(nace_r2 == "B-S_X_O")
+# 
+# ggplot(ff1 %>% filter(geo %in% iso2.sub)) + geom_bar(aes(x = isced11, y = val, group = isced11, fill = isced11), stat = "identity") + 
+#   theme_ipsum_rc() + facet_wrap(~ geo, ncol = 8) + 
+#   theme(axis.text.x = element_text(angle = 90)) + scale_fill_ipsum() 
+
+
+```

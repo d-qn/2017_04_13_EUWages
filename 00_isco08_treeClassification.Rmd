@@ -1,0 +1,76 @@
+---
+title: ""
+author: "Duc-Quang Nguyen | swissinfo.ch"
+date: " 2017"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    theme: simplex
+---
+
+
+## Data
+
+* [isco-08 classification from Eurostat](http://ec.europa.eu/eurostat/ramon/nomenclatures/index.cfm?TargetUrl=LST_CLS_DLD&StrNom=CL_ISCO08&StrLanguageCode=EN&StrLayoutCode=HIERARCHIC#)
+
+## Data.tree
+
+[Create a tree from a data.frame](https://cran.r-project.org/web/packages/data.tree/vignettes/data.tree.html)
+
+```{r setup, include=FALSE}
+data.file <- "data/CL_ISCO08_20170425_154231.csv"
+
+library(tidyverse)
+library(scales)
+library(magrittr)
+library(countrycode)
+library(swiMap)
+library(swiTheme)
+
+### Interactive 
+
+library(htmltools)
+library(shiny)
+library(swiRcharts)
+#library(D3partitionR)
+library(collapsibleTree)
+```
+
+```{r load & wrangle}
+data.read <- read_csv(data.file) %>% filter(Order >= 1635905)
+
+# get all the leaves (level 4)
+dat <- data.read %>% filter(Level == 4) %>% select(Code_1, Description, Parent_1)
+
+dat2 <- data.read[match(dat$Parent_1, data.read$Code_1), c('Description', 'Parent_1')]
+dat3 <- data.read[match(dat2$Parent_1, data.read$Code_1), c('Description', 'Parent_1')]
+dat4 <- data.read[match(dat3$Parent_1, data.read$Code_1), c('Description')]
+
+data <- cbind(dat %>% select(-Parent_1) %>% rename(level4 = Description) , 
+      dat2 %>% select(-Parent_1) %>% rename(level3 = Description),
+      dat3 %>% select(-Parent_1) %>% rename(level2 = Description), 
+      dat4 %>% rename(level1 = Description)
+      )
+
+tree <- collapsibleTree(data, c("level1", "level2", "level3", "level4"), 
+                fillByLevel = T,
+                width = "100%",
+                linkLength = 70,
+                root = "isco-08 occupation hierarchy")
+
+save_html(
+ tags$html(
+      #tags$head(),
+      tags$body(    
+       # tags$h2(txt['main.title', lang]),
+        #div(class = "descr", HTML(txt['descr', lang])),
+        #tags$h3(txt['h3', lang]),
+        div(class="graphic", tree),
+       # div(id = "cite", HTML(footer)),
+        HTML(iframeresizer)
+      )
+    ), file = paste0("isco08_tree_", 'EN', ".html"), libdir = "js"
+)
+
+```
