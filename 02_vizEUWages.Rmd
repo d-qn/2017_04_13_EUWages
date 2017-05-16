@@ -58,6 +58,7 @@ Disparities in gross hourly earnings within a country can be measured using deci
 
 ```{r setup, include=FALSE}
 iso2.sub <- c('EU28', 'CH', 'DE' , 'FR', 'IT','UK', 'ES', 'AT', 'PT', 'TR')
+names(iso2.sub) <- c('#4c6570', '#b15953', rep('#a6a6a6', length(iso2.sub) -2))
 
 eu.monthly.file <- "data/earn_ses_monthly.RData"
 load(file = eu.monthly.file)
@@ -77,6 +78,7 @@ library(eurostat)
 library(highcharter)
 library(htmltools)
 library(shiny)
+library(ggiraph)
 library(swiRcharts)
 library(classInt)
 library(hrbrthemes)
@@ -201,6 +203,7 @@ save_html(
 
 
 ```{r salary by age}
+
 dd3 <- eu.dat %>% 
   filter(indic_se == 'ERN_MN_EUR', nace_r2 == 'B-S_X_O', time == 2014, geo %in% iso2.sub) %>% 
   select(-time, -nace_r2, -indic_se)
@@ -219,47 +222,129 @@ dd3 %<>% group_by(isco08, geo) %>% arrange(age) %>%
   mutate(wage.lt30 =  values[1]) %>% ungroup() %>% 
   filter(age != "TOTAL")
 
-dd3 %<>% mutate(val = (((values - wage.lt30) / wage.lt30)  * 100)) 
+dd3 %<>% mutate(val = (values - wage.lt30) / wage.lt30) 
                 
 dd3$isco08.full <- factor(isco.dic[match(dd3$isco08, isco.dic$code_name), 2] %>% 
   unlist(use.names = F), levels = isco.dic[match(levels(dd3$isco08), isco.dic$code_name), 2] %>% unlist(use.names = F))
 
-dd3$size <- ifelse(dd3$geo %in% c('CH', 'EU28'), 0.5, 0.1)
-
-dd3.gp <- ggplot(dd3 %>% filter(isco08 != "TOTAL")) + 
-  geom_line(aes(x = age, y = val, group = geo, colour = geo, size = size)) +
-  geom_point(aes(x = age, y = val, group = geo, colour = geo, size = size)) + 
-  facet_wrap(~isco08.full, nrow = 3) + theme_ipsum_rc() +
-  scale_fill_gradient2(high = "#193442", mid = "white", low = "#72302f", midpoint = 0) + geom_hline(yintercept = 0) +
-  scale_colour_ipsum() + scale_size_identity() + ggtitle("% difference in average wage by age and occupation groups") + ylim(c(0, 100))
-
-dd3.gp
+## add colour, line size
+dd3 %<>% mutate(color = names(iso2.sub)[match(geo, iso2.sub)], size = ifelse(geo %in% c('CH', 'EU28'), 0.5, 0.1))
 
 
-
-# ddd <- dd3 %>% filter(isco08 == "OC1")
-# # http://stackoverflow.com/questions/10667995/line-chart-highcharts
+# dd3.gp <- ggplot(dd3 %>% filter(isco08 != "TOTAL")) + 
+#   geom_line(aes(x = age, y = val, group = geo, colour = geo, size = size), alpha = 0.7) +
+#   geom_point(aes(x = age, y = val, group = geo, colour = geo, size = size)) + 
+#   facet_wrap(~isco08.full, nrow = 3) + swi_theme() +
+#   theme() + 
+#   scale_fill_gradient2(high = "#152c37", mid = "white", low = "#72302f", midpoint = 0) + geom_hline(yintercept = 0) +
+#   scale_colour_ipsum() + scale_size_identity() + ggtitle("% difference in average wage by age and occupation groups") + ylim(c(0, 100))
+# 
+# dd3.gp
+# 
+# dd3i <- ggplot(dd3 %>% filter(isco08 != "TOTAL")) + 
+#   geom_line(aes(x = age, y = val, group = geo, colour = geo, size = size, data_id = interaction(age, geo, isco08.full)), alpha = 0.7) +
+#   geom_point_interactive(aes(x = age, y = val, group = geo, colour = geo, size = size)) + 
+#   facet_wrap(~isco08.full, ncol = 2) + swi_theme() +
+#     theme(
+#       legend.position = "none", 
+#      # plot.background = element_rect(fill = "#333333", size = 0, color = NA),
+#       panel.grid.major.y=element_line(color="#737373", linetype="dotted", size=0.09),
+#      # axis.title = element_text(colour = "#f7f5ed", size = 15),
+#       #axis.text = element_text(colour = "#e5dbcd"),
+#       strip.background = element_blank(),
+#       strip.text = element_blank(),
+#       plot.margin=unit(c(0, 0.1, 0, 0.1), "cm")) +
+#   scale_fill_gradient2(high = "#152c37", mid = "white", low = "#72302f", midpoint = 0) + geom_hline(yintercept = 0) +
+#   scale_size_identity() + ylim(c(0, 100))
 # 
 # 
-# hchart(ddd, "spline",
-#              hcaes(x = age, y = val, group = geo, value = values, tooltip = values)) %>% hc_add_theme(hc_theme_swi)
-# 
-# highchart() %>% hc_add_series(data = ddd, type = "line")
-# 
-# %>%
-#   hc_plotOptions(series = list(marker = list(radius = 2),
-#                   dataLabels = list(enabled = T, formatter = JS('function () {return this.series.name;}'), x = 5
-#                   )))
+# ggiraph(code = {print(dd3i)})
+
+lang <- 'FR'
+oc <- "OC1"
+charts <- lapply(unique(dd3$isco08)[unique(dd3$isco08) != "TOTAL"], function(oc) {
+ 
+  ageGroup <-  c(">30 ans", "30-39", "40-49 ", "50-59", "<60 ans")
+    
+  # get different translations
+  dddd <- dd3 %>% filter(isco08 == oc) %>% select(-wage.lt30) %>% 
+    filter(age != 'Y_LT30') %>%
+    mutate(geo = ifelse(as.character(geo) == 'EU28', 'EU', as.character(geo)),
+           geo = ifelse(as.character(geo) == 'UK', 'GB', geo)) %>%
+    mutate(label = countryTranslation(geo, lang)[,2]) %>%
+    # get age translation
+    mutate(age = factor(age, labels = ageGroup[-1]))
+
+  dddd$tip <- paste0(
+    '<h4>', as.character(dddd$label), '</h4><div class="tpsubtitle">',
+    as.character(dddd$isco08.full), '</div><div class = "tp">',
+    "Salaire moyen des ", as.character(dddd$age), " comparé aux ", ageGroup[1], 
+    " :<b>", ifelse(dddd$val >0, "+", "-"), round(dddd$val, 2) * 100, "</b>%<br>",
+    "Salaire moyen: ", dddd$values, '€</div>')
+  dddd$tip <- gsub("'", "_", gsub("\\\n", "", dddd$tip))
+  
+  gp <- ggplot(dddd, aes(x = age, y = val, group = geo, colour = color)) + 
+  geom_line(aes(size = size + 0.1), alpha = 0.4) +
+  geom_point_interactive(
+    aes(size = size + 1.5, alpha = size + 0.1, 
+        data_id = interaction(age, geo, isco08.full), tooltip = tip)) + 
+  scale_size_identity() +
+  scale_colour_identity() +  
+  scale_y_continuous(limits = c(0, 1), labels=percent, expand = c(0.01, 0), name = "") +
+  scale_x_discrete( name = "", expand = c(0.02, 0.02)) 
+  
+  if(oc %in% c("OC1", "OC2")) {
+    gp <- gp + geom_text(data = dddd %>% filter(geo %in% c('CH', 'EU'), age == ageGroup[length(ageGroup)]), 
+                   aes(label = label), hjust = 0.9)
+  }
+  
+  gpl <- gp +  swi_theme(base_size = 12, base_family = "Open Sans Condensed", base_color = "#152c37") +
+    theme(
+      legend.position = "none", 
+     # plot.background = element_rect(fill = "#333333", size = 0, color = NA),
+      panel.grid.major.y=element_line(color="#8c8c8c", size=0.02),
+      axis.ticks.x = element_line(size = 1, colour = '#595959'),
+      axis.text.y = element_text(margin=margin(r=-4)),
+      axis.line.x = element_line(size=0.5),
+     # axis.title = element_text(colour = "#f7f5ed", size = 15),
+      #axis.text = element_text(colour = "#e5dbcd"),
+      #plot.title=element_text(margin=margin(b=3)),
+      #strip.background = element_blank(),
+      #strip.text = element_blank(),
+      plot.margin=unit(c(0.5, 0.6, .3, 0), "cm"))
+    
+  gpli <- ggiraph(code = {print(gpl)},
+    hover_css = "fill-opacity:0.6;stroke-opacity:0.9;stroke-width:1.1px;stroke:#333333;",
+    tooltip_opacity = 0.7,
+    pointsize = 12,
+    width = 1,
+    width_svg = 3.7,
+    height_svg = 3.3,
+    fonts = list(sans = "Open Sans Condensed", serif = "Open Sans Condensed"))
+    list(chart = gpli, title = as.character(unique(dddd$isco08.full)))
+})
 
 
 
 
 
-
-# ggplot(dd3 %>% filter(isco08.full != "Managers")) + geom_line(aes(x = age, y = val, group = geo, colour = geo, size = size)) + 
-#   facet_wrap(~isco08.full, nrow = 3) + theme_ipsum_rc() + scale_size_identity() +
-#   scale_fill_gradient2(high = "#193442", mid = "white", low = "#72302f", midpoint = 0) + scale_colour_ipsum() +
-#   ggtitle("% difference in average wage by age and occupation groups")
+save_html(
+   tags$html(
+      tags$head(includeHTML("styles.html")),
+  fluidPage(
+    #tags$h2(txt["main.title", lang]),
+    #div(class = "descr", HTML(paste0(txt["descr", lang], "<br>", txt["descr2", lang]))),
+    #tags$h4(txt["h3", lang]),
+    div(class="graphic", 
+        fluidRow(lapply(1:length(charts), function(i) {
+          column(4, div(class = "graphic",  h4(HTML(charts[[i]]$title)), charts[[i]]$chart))
+        }))#,
+        #div(id = "cite", HTML(footer))
+    ),
+    HTML(iframeresizer)  
+  )), #background = "#EDEDED", 
+  file =  paste0("wageByISCOandAge_", lang, ".html"), libdir = "js")
+  
 
 
 
